@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Somnia Swap</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0d1117;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .swap-box {
+      background: #161b22;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.5);
+      width: 350px;
+    }
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 6px;
+      border: none;
+    }
+    button {
+      background: #238636;
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+    #quote {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #9ca3af;
+      white-space: pre-line;
+    }
+  </style>
+</head>
+<body>
+  <div class="swap-box">
+    <h2>Somnia Swap</h2>
+    <select id="pairSelect" onchange="updateQuote()">
+      <option value="STT_USSD">STT ↔ USSD</option>
+      <option value="GX_USSD">GX ↔ USSD</option>
+    </select>
+
+    <input id="amountIn" type="number" placeholder="Amount in (Token A)" oninput="updateQuote()" />
+
+    <button onclick="connectSpecificWallet('metamask')">Connect MetaMask</button>
+    <button onclick="doSwap()">Swap</button>
+
+    <div id="quote">💡 Output: --</div>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    let provider, signer, userAddress;
+    let connectedWalletType = null;
+
+    const PAIRS_CONFIG = {
+      STT_USSD: {
+        name: 'STT/USSD',
+        ROUTER_ADDRESS: "0xEd03899F0804B5BD49a06192f22900f89F3EC019",
+        PAIR_ADDRESS: "0x81001f1e0fC4aBB1F76444AFeEb148Bc8d1F9118",
+        TOKEN_A: { address: "0xF22eF0085f6511f70b01a68F360dCc56261F768a", symbol: "STT", decimals: 18 },
+        TOKEN_B: { address: "0x22d33Bf4e4076C018539bEBD7213A505fa980676", symbol: "USSD", decimals: 18 }
+      },
+      GX_USSD: {
+        name: 'GX/USSD',
+        ROUTER_ADDRESS: "0xb04116B49E34078b35468205982e5CD1B6d566F7",
+        PAIR_ADDRESS: "0x7b22883D5ca7443eC45325CfF7BEdAD49BcC2110",
+        TOKEN_A: { address: "0xd0c6db65b4B6Fd9B0FF325520A30c2aa726133f2", symbol: "GX", decimals: 18 },
+        TOKEN_B: { address: "0x22d33Bf4e4076C018539bEBD7213A505fa980676", symbol: "USSD", decimals: 18 }
+      }
+    };
+
+    const ERC20_ABI = [
+      "function approve(address spender, uint256 amount) external returns (bool)"
+    ];
+    const ROUTER_ABI = [
+      "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address tokenIn, address tokenOut, address to) external returns (uint[] memory amounts)"
+    ];
+
+    // ⚠️ DEMO ABI – replace with the ABI from artifacts/contracts/AMMPair.sol/AMMPair.json
+    // const DEMO_PAIR_ABI = [
+    //   "function getReserves() view returns (uint256 reserve0, uint256 reserve1, uint32 blockTimestampLast)",
+    //   "function token0() view returns (address)",
+    //   "function token1() view returns (address)"
+    // ];
+    const DEMO_PAIR_ABI = [
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "spender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "Approval",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount0",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount1",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "Burn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount0",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount1",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "Mint",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount0In",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount1In",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount0Out",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount1Out",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "Swap",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint112",
+        "name": "reserve0",
+        "type": "uint112"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint112",
+        "name": "reserve1",
+        "type": "uint112"
+      }
+    ],
+    "name": "Sync",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "Transfer",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "allowance",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "spender",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "approve",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "balanceOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "burn",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount0",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount1",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "decimals",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getReserves",
+    "outputs": [
+      {
+        "internalType": "uint112",
+        "name": "",
+        "type": "uint112"
+      },
+      {
+        "internalType": "uint112",
+        "name": "",
+        "type": "uint112"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_token0",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_token1",
+        "type": "address"
+      }
+    ],
+    "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "mint",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "liquidity",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "name",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount0Out",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount1Out",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      }
+    ],
+    "name": "swap",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "symbol",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "token0",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "token1",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "totalSupply",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "transfer",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "value",
+        "type": "uint256"
+      }
+    ],
+    "name": "transferFrom",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]
+
+
+
+    async function connectSpecificWallet(walletType) {
+      try {
+        let ethereum = window.ethereum;
+        if (walletType === 'metamask') {
+          ethereum = window.ethereum?.providers?.find(p => p.isMetaMask) || window.ethereum;
+        }
+        if (!ethereum) throw new Error('MetaMask not found');
+
+        await ethereum.request({ method: 'eth_requestAccounts' });
+        provider = new ethers.providers.Web3Provider(ethereum);
+        signer = provider.getSigner();
+        userAddress = await signer.getAddress();
+        connectedWalletType = walletType;
+
+        document.getElementById("status").innerText = `✅ Connected: ${userAddress}`;
+      } catch (err) {
+        document.getElementById("status").innerText = "❌ " + err.message;
+      }
+    }
+
+    async function updateQuote() {
+      try {
+        const pairKey = document.getElementById("pairSelect").value;
+        const config = PAIRS_CONFIG[pairKey];
+        const amountIn = document.getElementById("amountIn").value;
+
+        if (!amountIn || amountIn <= 0) {
+          document.getElementById("quote").innerText = "💡 Output: --";
+          console.log("[updateQuote] No input amount provided");
+          return;
+        }
+
+        console.log(`\n[updateQuote] Pair selected: ${config.name}`);
+        console.log(`[updateQuote] Input amount: ${amountIn} ${config.TOKEN_A.symbol}`);
+
+        const rpc = new ethers.providers.JsonRpcProvider("https://dream-rpc.somnia.network/");
+        const pair = new ethers.Contract(config.PAIR_ADDRESS, DEMO_PAIR_ABI, rpc);
+
+        let reserves;
+        try {
+          reserves = await pair.getReserves();
+        } catch (err) {
+          console.error("[updateQuote] getReserves() failed:", err);
+          const raw = await rpc.call({
+            to: config.PAIR_ADDRESS,
+            data: pair.interface.encodeFunctionData("getReserves", [])
+          });
+          console.log("[updateQuote] Raw getReserves data:", raw);
+          document.getElementById("quote").innerText = "⚠️ getReserves() failed";
+          return;
+        }
+
+        const [reserve0, reserve1] = reserves;
+        const token0 = await pair.token0();
+        const token1 = await pair.token1();
+
+        console.log(`[updateQuote] token0: ${token0}`);
+        console.log(`[updateQuote] token1: ${token1}`);
+        console.log(`[updateQuote] raw reserves:`, reserve0.toString(), reserve1.toString());
+
+        let reserveA, reserveB;
+        if (config.TOKEN_A.address.toLowerCase() === token0.toLowerCase()) {
+          reserveA = reserve0;
+          reserveB = reserve1;
+        } else {
+          reserveA = reserve1;
+          reserveB = reserve0;
+        }
+
+        const rA = parseFloat(ethers.utils.formatUnits(reserveA, config.TOKEN_A.decimals));
+        const rB = parseFloat(ethers.utils.formatUnits(reserveB, config.TOKEN_B.decimals));
+        console.log(`[updateQuote] normalized reserves: ${rA} ${config.TOKEN_A.symbol}, ${rB} ${config.TOKEN_B.symbol}`);
+
+        const amountInWei = ethers.utils.parseUnits(amountIn, config.TOKEN_A.decimals);
+        const amountOutWei = reserveB.mul(amountInWei).div(reserveA.add(amountInWei));
+        const amountOut = ethers.utils.formatUnits(amountOutWei, config.TOKEN_B.decimals);
+
+        console.log(`[updateQuote] amountInWei=${amountInWei.toString()}`);
+        console.log(`[updateQuote] amountOutWei=${amountOutWei.toString()}`);
+        console.log(`[updateQuote] formatted output: ${amountOut} ${config.TOKEN_B.symbol}`);
+
+        const priceAinB = rB / rA;
+        const priceBinA = rA / rB;
+
+        document.getElementById("quote").innerText =
+          `💡 ${amountIn} ${config.TOKEN_A.symbol} ≈ ${amountOut} ${config.TOKEN_B.symbol}\n` +
+          `1 ${config.TOKEN_A.symbol} ≈ ${priceAinB.toFixed(6)} ${config.TOKEN_B.symbol}\n` +
+          `1 ${config.TOKEN_B.symbol} ≈ ${priceBinA.toFixed(6)} ${config.TOKEN_A.symbol}`;
+      } catch (err) {
+        console.error("[updateQuote] Unexpected error:", err);
+        document.getElementById("quote").innerText = "⚠️ Price unavailable";
+      }
+    }
+
+    async function doSwap() {
+      try {
+        const pairKey = document.getElementById("pairSelect").value;
+        const config = PAIRS_CONFIG[pairKey];
+        const amountIn = document.getElementById("amountIn").value;
+
+        if (!signer) throw new Error("Wallet not connected");
+        if (!amountIn || amountIn <= 0) throw new Error("Enter valid amount");
+
+        const amountInWei = ethers.utils.parseUnits(amountIn, config.TOKEN_A.decimals);
+
+        const tokenA = new ethers.Contract(config.TOKEN_A.address, ERC20_ABI, signer);
+        let tx = await tokenA.approve(config.ROUTER_ADDRESS, amountInWei);
+        await tx.wait();
+
+        const router = new ethers.Contract(config.ROUTER_ADDRESS, ROUTER_ABI, signer);
+        tx = await router.swapExactTokensForTokens(
+          amountInWei,
+          0,
+          config.TOKEN_A.address,
+          config.TOKEN_B.address,
+          userAddress
+        );
+        await tx.wait();
+
+        document.getElementById("status").innerText =
+          `✅ Swapped ${amountIn} ${config.TOKEN_A.symbol} → ${config.TOKEN_B.symbol}`;
+      } catch (err) {
+        document.getElementById("status").innerText = "❌ " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>

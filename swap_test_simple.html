@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Somnia Swap</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0d1117;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .swap-box {
+      background: #161b22;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.5);
+      width: 350px;
+    }
+    input, select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 6px;
+      border: none;
+    }
+    button {
+      background: #238636;
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #2ea043;
+    }
+  </style>
+</head>
+<body>
+  <div class="swap-box">
+    <h2>Somnia Swap</h2>
+    <select id="pairSelect">
+      <option value="STT_USSD">STT ↔ USSD</option>
+      <option value="GX_USSD">GX ↔ USSD</option>
+    </select>
+
+    <input id="amountIn" type="number" placeholder="Amount in (Token A)" />
+
+    <button onclick="connectSpecificWallet('metamask')">Connect MetaMask</button>
+    <button onclick="doSwap()">Swap</button>
+
+    <div id="status"></div>
+  </div>
+
+  <script>
+    let provider, signer, userAddress;
+    let connectedWalletType = null;
+
+    const PAIRS_CONFIG = {
+      STT_USSD: {
+        name: 'STT/USSD',
+        FACTORY_ADDRESS: "0xb06229eD4c53aEC803eC9E2c0d25B954685d77EC",
+        ROUTER_ADDRESS: "0xEd03899F0804B5BD49a06192f22900f89F3EC019",
+        PAIR_ADDRESS: "0x81001f1e0fC4aBB1F76444AFeEb148Bc8d1F9118",
+        TOKEN_A: {
+          address: "0xF22eF0085f6511f70b01a68F360dCc56261F768a",
+          symbol: "STT",
+          decimals: 18
+        },
+        TOKEN_B: {
+          address: "0x22d33Bf4e4076C018539bEBD7213A505fa980676",
+          symbol: "USSD",
+          decimals: 18
+        }
+      },
+      GX_USSD: {
+        name: 'GX/USSD',
+        FACTORY_ADDRESS: "0x221Fc0043237a93ddEc3b3C98faEA55D96eE2f96",
+        ROUTER_ADDRESS: "0xb04116B49E34078b35468205982e5CD1B6d566F7",
+        PAIR_ADDRESS: "0x7b22883D5ca7443eC45325CfF7BEdAD49BcC2110",
+        TOKEN_A: {
+          address: "0xd0c6db65b4B6Fd9B0FF325520A30c2aa726133f2",
+          symbol: "GX",
+          decimals: 18
+        },
+        TOKEN_B: {
+          address: "0x22d33Bf4e4076C018539bEBD7213A505fa980676",
+          symbol: "USSD",
+          decimals: 18
+        }
+      }
+    };
+
+    const ERC20_ABI = [
+      "function approve(address spender, uint256 amount) external returns (bool)",
+      "function decimals() view returns (uint8)"
+    ];
+
+    const ROUTER_ABI = [
+      "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address tokenIn, address tokenOut, address to) external returns (uint[] memory amounts)"
+    ];
+
+    async function connectSpecificWallet(walletType, showModal = true) {
+      try {
+        let ethereum;
+        switch (walletType) {
+          case 'metamask':
+            if (window.ethereum?.providers) {
+              ethereum = window.ethereum.providers.find(p => p.isMetaMask);
+            } else if (window.ethereum?.isMetaMask) {
+              ethereum = window.ethereum;
+            }
+            if (!ethereum) throw new Error('MetaMask not installed');
+            break;
+          case 'phantom':
+            ethereum = window.ethereum?.providers?.find(p => p.isPhantom) || window.phantom?.ethereum;
+            if (!ethereum) throw new Error('Phantom not installed');
+            break;
+          case 'coinbase':
+            ethereum = window.ethereum?.providers?.find(p => p.isCoinbaseWallet);
+            if (!ethereum) throw new Error('Coinbase Wallet not installed');
+            break;
+          default:
+            if (window.ethereum) {
+              ethereum = window.ethereum;
+            } else {
+              throw new Error('No wallet detected');
+            }
+        }
+
+        await ethereum.request({ method: 'eth_requestAccounts' });
+        provider = new ethers.providers.Web3Provider(ethereum);
+        signer = provider.getSigner();
+        userAddress = await signer.getAddress();
+        connectedWalletType = walletType;
+
+        document.getElementById("status").innerText = `✅ Connected: ${userAddress}`;
+      } catch (err) {
+        document.getElementById("status").innerText = "❌ " + err.message;
+      }
+    }
+
+    async function doSwap() {
+      try {
+        const pairKey = document.getElementById("pairSelect").value;
+        const config = PAIRS_CONFIG[pairKey];
+        const amountIn = document.getElementById("amountIn").value;
+
+        if (!signer) throw new Error("Wallet not connected");
+        if (!amountIn || amountIn <= 0) throw new Error("Enter valid amount");
+
+        const amountInWei = ethers.utils.parseUnits(amountIn, config.TOKEN_A.decimals);
+
+        // Approve token A
+        const tokenA = new ethers.Contract(config.TOKEN_A.address, ERC20_ABI, signer);
+        let tx = await tokenA.approve(config.ROUTER_ADDRESS, amountInWei);
+        await tx.wait();
+
+        // Swap
+        const router = new ethers.Contract(config.ROUTER_ADDRESS, ROUTER_ABI, signer);
+        tx = await router.swapExactTokensForTokens(
+          amountInWei,
+          0, // no min output
+          config.TOKEN_A.address,
+          config.TOKEN_B.address,
+          userAddress
+        );
+        await tx.wait();
+
+        document.getElementById("status").innerText = `✅ Swapped ${amountIn} ${config.TOKEN_A.symbol} → ${config.TOKEN_B.symbol}`;
+      } catch (err) {
+        document.getElementById("status").innerText = "❌ " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
