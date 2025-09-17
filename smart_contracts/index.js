@@ -1,4 +1,8 @@
+require("dotenv").config();
+
 const express = require('express');
+const rampRoutes = require("../api/rampRoutes"); // Add this line
+
 const app = express();
 app.use(express.json());
 
