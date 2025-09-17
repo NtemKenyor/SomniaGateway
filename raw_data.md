@@ -1,0 +1,2 @@
+✅ Token deployed at 0x150B32cE94281928AFb92Daf406eB4364EAC6Ba4
+
