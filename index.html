@@ -1020,7 +1020,7 @@
 
         <div id="token" class="tab-content active">
             <h2>Token Manager</h2>
-            <iframe style="width: 100%; min-height: 100vh;" src="token_builder.html" ></iframe>
+            <iframe id="token_builder_iframe" style="width: 100%; min-height: 100vh;" src="token_builder.html" ></iframe>
         </div>
 
         <div id="swap" class="tab-content">
@@ -1149,7 +1149,7 @@
 
         <div id="ramp" class="tab-content">
             <h2>Ramp Services</h2>
-            <iframe style="width: 100%; min-height: 100vh;" src="ramp.html" ></iframe>
+            <iframe id="ramp_iframe" style="width: 100%; min-height: 100vh;" src="ramp.html" ></iframe>
         </div>
 
         <div id="pools" class="tab-content">
@@ -1394,6 +1394,21 @@
             
             await updateNetworkInfo();
             debugLog('Application initialized successfully', 'success');
+
+            // Adding adjustments to pages
+            updateRampIframe();
+            updateTokenIframe();
+        }
+
+        //
+        function updateRampIframe() {
+            const iframe = document.getElementById("ramp_iframe");
+            iframe.src = `ramp.html?wallet_address=${encodeURIComponent(userAddress)}`;
+        }
+
+        function updateTokenIframe() {
+            const iframe = document.getElementById("token_builder_iframe");
+            iframe.src = `token_builder.html?wallet_address=${encodeURIComponent(userAddress)}`;
         }
 
         // Setup tabs

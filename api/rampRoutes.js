@@ -3,22 +3,34 @@ const axios = require('axios');
 const { ethers } = require('ethers');
 const router = express.Router();
 
+
 // Configuration
+// const CONFIG = {
+//     FLUTTERWAVE_SECRET_KEY: process.env.FLUTTERWAVE_SECRET_KEY,
+//     SOMNIA_MAINNET_RPC: 'https://api.infra.mainnet.somnia.network/',
+//     SOMNIA_TESTNET_RPC: 'https://dream-rpc.somnia.network/',
+//     MTX_TOKEN_ADDRESS: '0x0420b7272B146816851de0A3Df10F957ea282197',
+//     MTX_TOKEN_DECIMALS: 18,
+//     MTX_PRICE_USD: 0.003, // $0.003 per MTX
+//     PRIVATE_KEY: process.env.WALLET_PRIVATE_KEY // Wallet private key for sending tokens
+// };
+
 const CONFIG = {
     FLUTTERWAVE_SECRET_KEY: process.env.FLUTTERWAVE_SECRET_KEY,
     SOMNIA_MAINNET_RPC: 'https://api.infra.mainnet.somnia.network/',
     SOMNIA_TESTNET_RPC: 'https://dream-rpc.somnia.network/',
-    MTX_TOKEN_ADDRESS: '0x0420b7272B146816851de0A3Df10F957ea282197',
-    MTX_TOKEN_DECIMALS: 18,
-    MTX_PRICE_USD: 0.003, // $0.003 per MTX
+    USDD_TOKEN_ADDRESS: '0x22d33Bf4e4076C018539bEBD7213A505fa980676',
+    USDD_TOKEN_DECIMALS: 18,
+    USDD_PRICE_USD: 1.0, // $1 per USDD
     PRIVATE_KEY: process.env.WALLET_PRIVATE_KEY // Wallet private key for sending tokens
 };
+
 
 class TokenDistributor {
     constructor() {
         this.provider = new ethers.providers.JsonRpcProvider(CONFIG.SOMNIA_TESTNET_RPC);
         this.wallet = new ethers.Wallet(CONFIG.PRIVATE_KEY, this.provider);
-        this.tokenContract = new ethers.Contract(CONFIG.MTX_TOKEN_ADDRESS, ERC20_ABI, this.wallet);
+        this.tokenContract = new ethers.Contract(CONFIG.USDD_TOKEN_ADDRESS, ERC20_ABI, this.wallet);
     }
 
     async verifyFlutterwaveTransaction(transactionId) {
@@ -62,9 +74,9 @@ class TokenDistributor {
             amountUSD = parseFloat(fiatAmount) * (exchangeRates[currency] || 1);
         }
 
-        // Calculate MTX tokens based on USD price
-        const tokenAmount = amountUSD / CONFIG.MTX_PRICE_USD;
-        return ethers.utils.parseUnits(tokenAmount.toFixed(CONFIG.MTX_TOKEN_DECIMALS), CONFIG.MTX_TOKEN_DECIMALS);
+        // Calculate USDD tokens based on USD price
+        const tokenAmount = amountUSD / CONFIG.USDD_PRICE_USD;
+        return ethers.utils.parseUnits(tokenAmount.toFixed(CONFIG.USDD_TOKEN_DECIMALS), CONFIG.USDD_TOKEN_DECIMALS);
     }
 
     async sendTokens(recipientAddress, tokenAmount) {
@@ -82,7 +94,7 @@ class TokenDistributor {
             return {
                 success: true,
                 transactionHash: receipt.transactionHash,
-                tokenAmount: ethers.utils.formatUnits(tokenAmount, CONFIG.MTX_TOKEN_DECIMALS)
+                tokenAmount: ethers.utils.formatUnits(tokenAmount, CONFIG.USDD_TOKEN_DECIMALS)
             };
         } catch (error) {
             console.error('Token transfer error:', error);
@@ -134,7 +146,7 @@ class TokenDistributor {
                 success: true,
                 tokenAmount: transferResult.tokenAmount,
                 transactionHash: transferResult.transactionHash,
-                message: `Successfully sent ${transferResult.tokenAmount} MTX to ${walletAddress}`
+                message: `Successfully sent ${transferResult.tokenAmount} USDD to ${walletAddress}`
             };
         } else {
             // For sell mode, handle fiat payout (implement your payout logic here)
